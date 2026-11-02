@@ -1,0 +1,78 @@
+name: Build RAGE LEAD
+
+# Runs automatically when you upload files, and you can also start it by hand
+# from the "Actions" tab (button: "Run workflow").
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows VST3
+    runs-on: windows-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Configure (downloads JUCE automatically)
+        shell: pwsh
+        run: cmake -S . -B build -A x64
+
+      - name: Build the plugin
+        shell: pwsh
+        run: cmake --build build --config Release --target RageLead_VST3 RageLead_Standalone --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $vst = Get-ChildItem -Path build -Recurse -Directory -Filter "RAGE LEAD.vst3" | Select-Object -First 1
+          if ($null -eq $vst) { Write-Error "RAGE LEAD.vst3 was not produced"; exit 1 }
+          Copy-Item -Recurse -Path $vst.FullName -Destination "dist/RAGE LEAD.vst3"
+          $exe = Get-ChildItem -Path build -Recurse -File -Filter "RAGE LEAD.exe" | Select-Object -First 1
+          if ($null -ne $exe) {
+            New-Item -ItemType Directory -Force -Path "dist/Standalone_Test_App" | Out-Null
+            Copy-Item -Path $exe.FullName -Destination "dist/Standalone_Test_App/"
+          }
+          Copy-Item installer/INSTALL.bat dist/INSTALL.bat
+          Copy-Item README_START_HERE.txt dist/README_START_HERE.txt
+          Get-ChildItem -Recurse dist | Select-Object FullName
+
+      - name: Upload RAGE_LEAD_Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAGE_LEAD_Windows
+          path: dist
+          if-no-files-found: error
+
+  macos:
+    name: macOS VST3
+    runs-on: macos-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Configure (downloads JUCE automatically)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build the plugin
+        run: cmake --build build --config Release --target RageLead_VST3 --parallel 4
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          VST=$(find build -type d -name "RAGE LEAD.vst3" | head -n 1)
+          if [ -z "$VST" ]; then echo "RAGE LEAD.vst3 was not produced"; exit 1; fi
+          cp -R "$VST" "dist/RAGE LEAD.vst3"
+          codesign --force --deep -s - "dist/RAGE LEAD.vst3"
+          cp installer/INSTALL_MAC.command dist/INSTALL_MAC.command
+          chmod +x dist/INSTALL_MAC.command
+          cp README_START_HERE.txt dist/README_START_HERE.txt
+          ls -R dist | head -n 40
+
+      - name: Upload RAGE_LEAD_macOS
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAGE_LEAD_macOS
+          path: dist
+          if-no-files-found: error
